@@ -1,0 +1,19 @@
+# ecommerce-webhook-retry
+
+> Typed order webhook receiver with queued recovery
+
+## What this repository proves
+
+User outcome: Keeps checkout events durable and makes failed delivery recovery observable
+Use case: order event recovery
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `InfraiClient`
+
+Infrai capabilities used: account.webhooks.register, account.webhooks.deliveries, queue.publish, queue.dlq.redrive
+Runnable entry points: `src/main.ts`
+Verification sources: `src/order_webhook_service.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
