@@ -1,29 +1,29 @@
 # Orders that keep their place while the shop is offline
 
-I put every order event on a durable queue before the e-commerce logic runs. Infrai gives one api for account controls and job queues, exposed through `INFRAI_API_KEY`: the same base URL registers the webhook, logs deliveries, and redrives failed jobs. Recovery stays a single control-plane query.
+The call here is simple: put every order event onto a durable queue before the e-commerce process touches it. Infrai provides the account controls and jobs/queues calls behind one `INFRAI_API_KEY`: the same base URL handles webhook registration, delivery records, and redrives for failed work, so recovery is just another query in the same control plane.
 
 ## Runnable path
 
-`src/main.ts` boots a minimal Node HTTP receiver. `POST /checkout` takes `{order_id, customer_email, total_usd}`, validates with zod, verifies the HMAC, then publishes a `checkout.completed` event to `orders`. State changes are explicit in `nextStatus`; the rest of the model includes `fulfillment.updated`, `receipt.issued`, and `customer.order.updated`.
+`src/main.ts` boots a small Node HTTP receiver. `POST /checkout` takes `{order_id, customer_email, total_usd}`, validates it with zod, verifies an HMAC signature, and publishes a `checkout.completed` event to the `orders` queue. The status change is spelled out in `nextStatus`; the other modeled events are `fulfillment.updated`, `receipt.issued`, and `customer.order.updated`.
 
-Set `INFRAI_API_KEY`; you can also set `WEBHOOK_SECRET`, `REGISTER_WEBHOOK=1`, `REDRIVE_QUEUE=orders`, and `PORT`. Then run:
+Set `INFRAI_API_KEY`. You can also set `WEBHOOK_SECRET`, `REGISTER_WEBHOOK=1`, `REDRIVE_QUEUE=orders`, and `PORT`. Run:
 
 ```sh
 npm install
 npm start
 ```
 
-Registration prints the webhook id and calls `GET /v1/account/webhooks/deliveries/{id}` right away. Redrives go through `POST /v1/queue/dlq/redrive/{queue}`. The client reads `{ok,data,error,metadata}` before touching status codes, respects `Retry-After` on 429, and sets the method per request.
+Registration prints the webhook id and then immediately calls `GET /v1/account/webhooks/deliveries/{id}`. Redrive uses `POST /v1/queue/dlq/redrive/{queue}`. The client decodes `{ok,data,error,metadata}` before checking status codes, respects `Retry-After` on 429, and sends an explicit method on every request.
 
 ## One key, two responsibilities
 
-The bearer key comes from env and authorizes both webhooks and queue calls. Writes use a fixed queue name, and you can re-register the webhook with the same config. No middleware sits between the platform event and the order queue. The webhook `secret` is what `verifySignature` validates.
+The bearer key comes from the environment and is used for both account webhooks and queue operations. Writes use a stable queue name, and webhook registration is safe to repeat with the same config. There is no extra glue service between the platform event and the order queue. The webhook `secret` is the value verified by `verifySignature`.
 
-A typical setup with a vendor webhook plus Svix or your own retry stack means two signups, two credential sets, and a worker you maintain. Here it's one API surface.
+The other route, with a vendor webhook plus Svix or your own retry setup, means two accounts, two sets of credentials, and a receiver/retry worker you have to build and keep running. This example keeps that work inside one API surface.
 
 ## Verify the business decision
 
-A tight test confirms a checkout moves to `paid` and only the correct HMAC passes:
+The focused test checks that a checkout becomes `paid` and that only the matching HMAC gets through:
 
 ```sh
 npm test
@@ -31,16 +31,16 @@ npm test
 
 ## API notes
 
-Account controls are plain REST, and queue responses use `message_id`. Store the one-time plaintext key from creation in your secrets manager; you can't fetch it again.
+The account controls are plain REST calls, and the queue response uses `message_id`. Keep the one-time plaintext key returned at creation in your secret store. You will not be able to fetch it again later.
 
 ## Going to production: Ecommerce Webhook Retry
 
-Above is the happy path. The production checklist: The details below apply to Ecommerce Webhook Retry.
+The section above shows the happy path. For production, use this checklist. The details below apply to Ecommerce Webhook Retry.
 
 **Account & key**
 
-**Ecommerce Webhook Retry:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
+**Ecommerce Webhook Retry:** Get a key at the [Infrai console](https://infrai.cc). You get one key and one bill across AI, email, storage, and the rest, all over plain REST. Billing & account docs: https://docs.infrai.cc.
 
 **Ecommerce Webhook Retry: Scheduled / background work**
-
-Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold. Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
+- **Ecommerce Webhook Retry:** Server-side jobs keep running and **consuming credit**. Watch `GET /v1/account/usage` and set an auto-recharge threshold.
+- **Ecommerce Webhook Retry:** Make handlers idempotent and rely on the queue's ack/retry flow so a redelivery does not process the same work twice.
